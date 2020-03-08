@@ -1,0 +1,23 @@
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DARMA_DONT_USE_WRAPPER")
+
+find_path(APS_ROOT include/base/error.h PATHS "~/aps")
+find_path(ARMA_INC_DIR armadillo PATHS $ENV{SCINET_ARMADILLO_ROOT}/include/)
+find_path(ADEPT_INC_DIR adept.h PATHS ~/aps_aux/local/include)
+find_path(FLANN_INC_DIR nanoflann.hpp PATHS ~/aps_aux/local/include)
+
+find_library(APS_LIB aps PATHS "~/aps/build/lib")
+find_path(MKL_INTEL_DIR libmkl_core.a PATHS $ENV{MKLROOT}/lib/intel64 $ENV{MKLROOT})
+find_library(MKL_INTEL_LP64_LIB mkl_intel_lp64 PATHS ${MKL_INTEL_DIR})
+find_library(MKL_SEQ_LIB mkl_sequential PATHS ${MKL_INTEL_DIR})
+find_library(MKL_CORE_LIB mkl_core PATHS ${MKL_INTEL_DIR})
+set(BLAS_LIBS ${MKL_INTEL_LP64_LIB} ${MKL_CORE_LIB} ${MKL_SEQ_LIB})
+
+include_directories(
+  ${APS_ROOT}/include
+  ${ADEPT_INC_DIR}
+  ${ARMA_INC_DIR}
+  ${FLANN_INC_DIR}
+  )
+
+message("APS LIB: ${APS_LIB}")
