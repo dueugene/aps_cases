@@ -33,7 +33,7 @@
 #include "mesh/parallel_fe_field.h"
 
 #include "disc/dg_adaptation.h"
-a
+
 // subsonic laminar flow over an NACA0012 airfoil
 //
 // This case is setup for a parallel run.  The cmake configuration line should look something like the following
@@ -59,18 +59,20 @@ public:
   const unsigned int param_mode = 2;
 
   // internal parameters
-  std::vector<unsigned int> far_bnds;
-  unsigned int foil_bnd;
+  std::vector<unsigned int> far_bnds_;
+  unsigned int foil_bnd_;
+private:
   NSUtils* nsutils_;
   arma::Col<double> mu_;
+  arma::Mat<double> mu_bnd_;
 
 public:
   ParametrizedNS(unsigned int dim, const NSVariableType var_type_in, NSUtils* nsutils)
     : NavierStokes(var_type_in),
       nsutils_(nsutils)
   {
-    // set the parameter bound
-    // this function can be modified to change the parameter range
+    // set the default parameter bound
+    // this section can be modified to change the parameter range
     arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 5.0*M_PI/180.0}};
     arma::Row<double> M_bnd = {{0.3,0.5}};
     mu_bnd_.set_size(n_parameters(),2);
@@ -103,11 +105,12 @@ public:
     }
   }
 
-  void flow_vars(double& alpha, double& M)
+  void flow_vars(double& alpha, double& M, double& Re)
   {
     // Map the parameter to the flow variables.  The actual mapping depends on the parameter mode.
     alpha = 1.0*M_PI/180;
     M = 0.3;
+    Re = 5e3;
     switch (param_mode) {
     case 0:
       alpha = mu_(0);
@@ -128,49 +131,42 @@ public:
     // set the boundary conditions based on the parameters specified.
     double M;
     double alpha;
+    double Re;
     mu_ = mu;
-    flow_vars(alpha,M);
+    flow_vars(alpha,M,Re);
 
     // set initial condition
     nsutils_->set_mach_number(M);
-#ifdef ONERA
-    nsutils_->set_sideslip(alpha);
-    nsutils_->set_angle_of_attack(0.0);
-#else
     nsutils_->set_angle_of_attack(alpha);
-#endif
+    nsutils_->set_reynolds_number(Re);
+    nsutils_->set_reference_temperature_kelvin(273.15); // only used for nonconst visc
+    nsutils_->set_sutherland_constant_kelvin(110.4); // only used for nonconst visc
+      
     arma::Col<double> u_init = nsutils_->state();
     set_initial_state(u_init);
 
-    // set boundary conditions
+    // set all boundary conditions to full_state
     std::vector<double> ub = arma::conv_to<std::vector<double>>::from(u_init);
-    for (unsigned int i = 0; i < far_bnds.size(); ++i) {
-      set_boundary_type(far_bnds[i],NSBoundaryType::full_state);
-      set_boundary_parameters(far_bnds[i],ub);
+    for (unsigned int i = 0; i < far_bnds_.size(); ++i) {
+      set_boundary_type(far_bnds_[i],NSBoundaryType::full_state);
+      set_boundary_parameters(far_bnds_[i],ub);
     }
-    set_boundary_type(foil_bnd,NSBoundaryType::flow_tangency);
+    // re-set foil boundary
+    set_boundary_type(foil_bnd_,NSBoundaryType::adiabatic_wall);
 
-    // lift output
+    // output is the drag on the foil.  Note that this is the directional force in the direction of the flow.
     set_output_type(0,NSOutputType::directional_force);
-    std::vector<unsigned int> bids = {foil_bnd};
+    std::vector<unsigned int> bids = {foil_bnd_};
     set_output_boundary_ids(0,bids);
     const double qinf = nsutils_->dynamic_pressure();
-#ifdef ONERA
-    std::vector<double> bparams = {-sin(alpha)/qinf,0.0,cos(alpha)/qinf};
+    std::vector<double> bparams = {cos(alpha)/qinf,sin(alpha)/qinf,0.0};
     set_output_parameters(0,bparams);
-#else
-    std::vector<double> bparams = {-sin(alpha)/qinf,cos(alpha)/qinf,0.0};
-    set_output_parameters(0,bparams);
-#endif
   }
 
   virtual const arma::Mat<double>& parameter_domain() const
   {
     return mu_bnd_;
   }
-
-private:
-  arma::Mat<double> mu_bnd_;
 
 };
 
@@ -181,6 +177,7 @@ public:
     : dim(2),
       geom_degree(4),
       nstype(NSVariableType::entropy),
+      // note these settings are specific to navier_stokes eqns
       nsutils(dim,nstype,NSUtils::Equation::navier_stokes,NSUtils::Normalization::unit_rho_a),
       eqn(dim, nstype, &nsutils),
       mesh(dim),
@@ -206,50 +203,25 @@ public:
     mesh_geom.execute_repartition();
     mesh.finalize_repartition();
 #endif
-  }
-  
-  void load_naca_orig() {
 
-    // set boundary conditions
+    // set mesh info to eqn
     eqn.set_n_boundaries(3);
-
     // output (drag)
     eqn.set_n_outputs(1);
 
-    // set far-field boundaries
-    eqn.far_bnds.resize(2);
-    eqn.far_bnds[0] = 1;
-    eqn.far_bnds[1] = 2;
-    eqn.foil_bnd = 0;
-
-    // mesh generator
-    unsigned int sca = 1;
-    NacaMeshGenerator naca_gen; // the mesh generator will construct a C mesh
-    naca_gen.set_naca_digits("0012");
-    naca_gen.set_n_foil_elements(12*sca); // # elements on foil along flow direction
-    naca_gen.set_n_tail_elements(3*sca); // # elements after foil along flow direction
-    naca_gen.set_n_radial_elements(6*sca); // # elements in radial direction
-    naca_gen.set_n_span_elements(2*sca); // # spanwise elements
-    naca_gen.set_first_element_radial_spacing(0.1);
-    naca_gen.set_farfield_radius(30.0);
-    naca_gen.set_sqrt_fitting(true); // use sqrt relation for wall-normal spacing
-    naca_gen.set_mesh_entity_type(entity_type);
-
-    // load the mesh
-    mesh.set_enforce_one_regular_hanging_node(true);
-    naca_gen.generate_mesh(mesh, mesh_geom);
-
-    if (Utilities::MPI::mpi_comm_rank() == 0) {
-      printf("naca: mode = %d, n_elem = %d\n", eqn.param_mode, mesh.n_elements());
-    }
+    // set far-field boundary indices
+    eqn.far_bnds_.resize(2);
+    eqn.far_bnds_[0] = 1;
+    eqn.far_bnds_[1] = 2;
+    eqn.foil_bnd_ = 0;
   }
-
+  
   void setup_eqp() {
     // DG-EQP evaluator and contructor
     dg_eqp_c.set_spatio_parameter_adaptivity(true);
     // dg_eqp_c.set_spatial_adapt_on_first_iteration_only(true);
     dg_eqp_c.adapt()->set_adaptation_type(Adaptation<double>::type::anisotropic_h);
-
+    
     // FE tolerance
     dg_eqp_c.adapt()->set_target_error(5e-4);
     dg_eqp_c.adapt()->set_adaptation_target_type(Adaptation<double>::target_type::output);
@@ -346,15 +318,13 @@ public:
     ptc.set_verbosity(1);
     ptc.set_linear_solver(&gmres);
     ptc.set_max_iter(500);
-    ptc.set_initial_timestep(1e-2);
+    ptc.set_initial_timestep(1e-1);
     ptc.set_timestep_increase_multiplier(4.0);
     ptc.set_abs_tol(1e-9);
-    ptc.set_linear_solver_decrease_multiplier(1e-3);
-    ptc.set_line_search_maximum_physical_change(0.3);
-
-    // the below should not be needed for the NACA problem
-    //ptc.set_line_search_type(PTCSolver<double>::LineSearchType::unsteady);
-    //ptc.set_line_search_maximum_residual_increase(1.02);
+    ptc.set_line_search_type(PTCSolver<double>::LineSearchType::unsteady);
+    ptc.set_line_search_maximum_physical_change(0.2); 
+    ptc.set_line_search_maximum_residual_increase(1.02);
+    ptc.set_linear_solver_decrease_multiplier(1e-6);
 
     // set adjoint solver
     adjoint_solver.set_linear_solver(&gmres);
@@ -488,6 +458,7 @@ int main(int argc, char *argv[])
   EQPDriver eqpd;
   DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
 
+  eqpd.init_naca_c_mesh();
   eqpd.set_fe_solver();
   eqpd.set_rb_solver();
   eqpd.setup_eqp();
@@ -517,62 +488,10 @@ int main(int argc, char *argv[])
   Utilities::MPI::mpi_init(argc, argv);
   unsigned int comm_rank = Utilities::MPI::mpi_comm_rank();
 
-  // Set basic parameters.  Parameters are set for p=2 anisotropic-h adaptation. Change poly_degree and adapt_type parameters to consider other polynomial degrees or adaptation types.
-  const int dim = 2;
-  const MeshEntityType etype = MeshEntityType::quad;  
-  const int geom_degree = 4;
-  FiniteElementType fe_type = FiniteElementType::Legendre;
-  const unsigned int poly_degree = 2;
-  const auto adapt_type = Adaptation<double>::type::anisotropic_h;
-  const unsigned int n_adapt_iter = 15;
-  
   // flow parameters
   double M = 0.2;  
   double alpha = 0.5*M_PI/180;
   double Re = 5e3;
-
-  // initialize the Navier-Stokes utility class.  The class will help us set parameters and boundary conditions.
-  NSVariableType nstype = NSVariableType::entropy;
-  NSUtils nsutils(dim, nstype, NSUtils::Equation::navier_stokes, NSUtils::Normalization::unit_rho_a);
-  nsutils.set_mach_number(M);
-  nsutils.set_angle_of_attack(alpha);
-  nsutils.set_reynolds_number(Re);
-  nsutils.set_reference_temperature_kelvin(273.15); // only used for nonconst visc
-  nsutils.set_sutherland_constant_kelvin(110.4); // only used for nonconst visc
-
-  // initialize Navier-Stokes equations
-  NavierStokes<dim> eqn(nstype);  
-  eqn.set_dynamic_viscosity(nsutils.dynamic_viscosity());
-  eqn.set_constant_viscosity(true);
-  eqn.set_reference_temperature(nsutils.reference_temperature()); // only used for nonconst visc
-  eqn.set_sutherland_constant(nsutils.sutherland_constant()); // only used for nonconst visc
-  arma::Col<double> u_init = nsutils.state();
-  eqn.set_initial_state(u_init);
-
-  // set shock capturing.  We do not need shock capturing for this case.
-  eqn.set_shock_capturing(false);
-  eqn.set_shock_viscosity_type(Euler<dim>::shock_viscosity_type::physical);
-
-  // set boundary conditions
-  std::vector<double> ub = arma::conv_to<std::vector<double>>::from(u_init);  
-  eqn.set_n_boundaries(3);
-  // inflow
-  eqn.set_boundary_type(1,NSBoundaryType::full_state);
-  eqn.set_boundary_parameters(1,ub);
-  // outflow
-  eqn.set_boundary_type(2,NSBoundaryType::full_state);
-  eqn.set_boundary_parameters(2,ub);
-  // foil
-  eqn.set_boundary_type(0,NSBoundaryType::adiabatic_wall);
-  
-  // output is the drag on the foil.  Note that this is the directional force in the direction of the flow.
-  eqn.set_n_outputs(1);
-  eqn.set_output_type(0,NSOutputType::directional_force);
-  std::vector<unsigned int> bids = {0}; 
-  eqn.set_output_boundary_ids(0,bids);
-  const double qinf = nsutils.dynamic_pressure();
-  std::vector<double> bparams = {cos(alpha)/qinf,sin(alpha)/qinf,0.0};
-  eqn.set_output_parameters(0,bparams);
 
   // initialize FE and quadrature set
   FESet fe_set;
