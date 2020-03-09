@@ -4,6 +4,7 @@
 #include <armadillo>
 
 #define WITH_MPI
+#define WITH_FFD
 
 #include "base/mpi_wrapper.h"
 #include "base/quadrature.h"
@@ -28,9 +29,16 @@
 #include "solver/block_ilu.h"
 #include "solver/additive_schwarz.h"
 
+#ifdef WITH_MPI
 #include "mesh/parallel_mesh.h"
-#include "mesh/parallel_mesh_geometry.h"
 #include "mesh/parallel_fe_field.h"
+#include "mesh/parallel_mesh_geometry.h"
+#else
+#include "mesh/mesh.h"
+#include "mesh/fe_field.h"
+#include "mesh/mesh_geometry.h"
+#endif
+#include "mesh/ffd.h"
 
 #include "disc/dg_adaptation.h"
 
@@ -56,7 +64,10 @@ public:
   // 0 : alpha only
   // 1 : M only
   // 2 : alpha and M
-  const unsigned int param_mode = 2;
+  // 3 : alpha, Re, and M
+  // 4 : alpha, Re, and M, with FFD
+
+  const unsigned int param_mode_ = 4;
 
   // internal parameters
   std::vector<unsigned int> far_bnds_;
@@ -65,18 +76,26 @@ private:
   NSUtils* nsutils_;
   arma::Col<double> mu_;
   arma::Mat<double> mu_bnd_;
-
 public:
-  ParametrizedNS(unsigned int dim, const NSVariableType var_type_in, NSUtils* nsutils)
+  FFD* ffd_;
+  
+public:
+  ParametrizedNS(unsigned int dim, const NSVariableType var_type_in, NSUtils* nsutils, FFD* ffd = nullptr)
     : NavierStokes(var_type_in),
-      nsutils_(nsutils)
+      nsutils_(nsutils),
+      ffd_(ffd)
+  {}
+
+  /** initialize with default parameter bounds */
+  void init_default_parameter_bound()
   {
-    // set the default parameter bound
     // this section can be modified to change the parameter range
     arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 5.0*M_PI/180.0}};
     arma::Row<double> M_bnd = {{0.3,0.5}};
+    arma::Row<double> Re_bnd = {{5e3, 8e3}};
+    arma::Row<double> geom_delta_bnd = {{-0.2, 0.2}};
     mu_bnd_.set_size(n_parameters(),2);
-    switch (param_mode) {
+    switch (param_mode_) {
     case 0:
       mu_bnd_.row(0) = alpha_bnd;
       break;
@@ -87,19 +106,37 @@ public:
       mu_bnd_.row(0) = alpha_bnd;
       mu_bnd_.row(1) = M_bnd;
       break;
+    case 3:
+      mu_bnd_.row(0) = alpha_bnd;
+      mu_bnd_.row(1) = M_bnd;
+      mu_bnd_.row(2) = Re_bnd;
+      break;
+    case 4:
+      mu_bnd_.row(0) = alpha_bnd;
+      mu_bnd_.row(1) = M_bnd;
+      mu_bnd_.row(2) = Re_bnd;
+      for (unsigned int i = 3; i < n_parameters(); ++i) {
+        mu_bnd_.row(i) = geom_delta_bnd;
+      }
+      break;
     default:
       Error("unknown mode");
     }
   }
 
+
   virtual unsigned int n_parameters() const
   {
-    switch (param_mode) {
+    switch (param_mode_) {
     case 0:
     case 1:
       return 1;
     case 2:
       return 2;
+    case 3:
+      return 3;
+    case 4:
+      return 3 + ffd_->get_n_dof();
     default:
       Error("unsupported mode");
     }
@@ -111,7 +148,7 @@ public:
     alpha = 1.0*M_PI/180;
     M = 0.3;
     Re = 5e3;
-    switch (param_mode) {
+    switch (param_mode_) {
     case 0:
       alpha = mu_(0);
       break;
@@ -121,6 +158,12 @@ public:
     case 2:
       alpha = mu_(0);
       M = mu_(1);
+      break;
+    case 3:
+    case 4:
+      alpha = mu_(0);
+      M = mu_(1);
+      Re = mu_(2);
       break;
     default:
       Error("unknown mode");
@@ -151,7 +194,7 @@ public:
       set_boundary_type(far_bnds_[i],NSBoundaryType::full_state);
       set_boundary_parameters(far_bnds_[i],ub);
     }
-    // re-set foil boundary
+    // re-set foil boundary to adiabatic_wall
     set_boundary_type(foil_bnd_,NSBoundaryType::adiabatic_wall);
 
     // output is the drag on the foil.  Note that this is the directional force in the direction of the flow.
@@ -161,6 +204,11 @@ public:
     const double qinf = nsutils_->dynamic_pressure();
     std::vector<double> bparams = {cos(alpha)/qinf,sin(alpha)/qinf,0.0};
     set_output_parameters(0,bparams);
+
+    // set ffd parameters
+    if (param_mode_ == 4) {
+      ffd_->set_transformed_control_point(mu.subvec(3,3 + ffd_->get_n_dof() - 1),1);
+    }
   }
 
   virtual const arma::Mat<double>& parameter_domain() const
@@ -232,7 +280,7 @@ public:
     // RB-EQP Greedy settings
     dg_eqp_c.set_n_max_reduced_basis(13);
     dg_eqp_c.set_weak_greedy_tolerance(1e-3);
-    //dg_eqp_c.set_pod_tolerance(1e-10);
+    // dg_eqp_c.set_pod_tolerance(1e-10);
     dg_eqp_c.set_eqp_tolerance(1e-4);
     dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
     dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
@@ -242,7 +290,7 @@ public:
     dg_eqp_c.set_n_eqp_smoothing_iterations(3);
     dg_eqp_c.set_eqp_verbosity(-1);
     dg_eqp_c.set_eqp_target_type(DGEQPConstructor<double>::EQPTargetType::output);
-    //dg_eqp_c.set_eqp_unity_weights(true);
+    // dg_eqp_c.set_eqp_unity_weights(true);
     dg_eqp_c.set_eqp_element_constant_constraint(true);
     dg_eqp_c.set_eqp_facet_constant_constraint(true);
     dg_eqp_c.set_eqp_min_nnz_weights(0);
@@ -267,8 +315,7 @@ public:
     arma::arma_rng::set_seed(100);
     unsigned int n_test = 10;
     dg_eqp_c.generate_random_parameter_set(n_test, Xi_test);
-    //Xi_test = Xi_train;
-
+   
     dg_eqp_c.set_test_parameters(Xi_test);
     dg_eqp_c.set_test_rb_truth_error(true);
     dg_eqp_c.set_test_res(true);
@@ -454,21 +501,31 @@ int main(int argc, char *argv[])
 #ifdef WITH_MPI
   Utilities::MPI::mpi_init(argc, argv);
 #endif
+
   unsigned int comm_rank = Utilities::MPI::mpi_comm_rank();
   EQPDriver eqpd;
   DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
 
+#ifdef WITH_FFD
+  // setup ffd here.
+  // set mesh transformation
+  arma::Mat<double> bounds = {{-0.5,1.5},{-1.0,1.0}};
+  std::vector<unsigned int> n_points = {3,3};
+  unsigned int continuity = 0;
+  // initialize ffd
+  FFD ffd(eqpd.dim, bounds, n_points, continuity);
+
+  // pass the ffd and mesh transform information
+  eqpd.eqn.ffd_ = &ffd;
+  eqpd.mesh_geom.set_ffd(&ffd);
+#endif
+  
+  // call EQPDriver intialization routines
+  eqpd.eqn.init_default_parameter_bound();
   eqpd.init_naca_c_mesh();
   eqpd.set_fe_solver();
   eqpd.set_rb_solver();
   eqpd.setup_eqp();
-
-  if ((eqpd.Xi_train.n_elem == eqpd.Xi_test.n_elem) &&
-      (arma::norm(arma::vectorise(eqpd.Xi_train - eqpd.Xi_test)) == 0)) {
-    if (Utilities::MPI::mpi_comm_rank() == 0) {
-      printf("setting test = train\n");
-    }
-  }
 
   // run the weak greedy algorithm
   dg_eqp_c.set_adaptive_eqp_training(true);
@@ -481,125 +538,3 @@ int main(int argc, char *argv[])
   return 0;
 }
 
-/*
-int main(int argc, char *argv[])
-{
-  // initialize MPI and define useful variables
-  Utilities::MPI::mpi_init(argc, argv);
-  unsigned int comm_rank = Utilities::MPI::mpi_comm_rank();
-
-  // flow parameters
-  double M = 0.2;  
-  double alpha = 0.5*M_PI/180;
-  double Re = 5e3;
-
-  // initialize FE and quadrature set
-  FESet fe_set;
-  QuadratureSet quad_set;
-
-  // generate mesh
-  ParallelMesh mesh(dim);
-  ParallelMeshGeometry mesh_geom(&mesh,&fe_set,geom_degree);
-  NacaMeshGenerator naca_gen; // the mesh generator will construct a C mesh
-  naca_gen.set_naca_digits("0012");
-  naca_gen.set_n_foil_elements(7); // # elements on foil along flow direction
-  naca_gen.set_n_tail_elements(3); // # elements after foil along flow direction
-  naca_gen.set_n_radial_elements(5); // # elements in radial direction
-  naca_gen.set_first_element_radial_spacing(0.1/4); 
-  naca_gen.set_sqrt_fitting(true); // use sqrt relation for wall-normal spacing
-  naca_gen.generate_mesh(mesh, mesh_geom);
-
-  // paralellize the mesh and geometry
-  mesh.prepare_parallelization();
-  mesh.execute_repartition();
-  mesh_geom.execute_repartition();
-  mesh.finalize_repartition();
-
-  // set linear solver
-  // linear solver is GMRES
-  // local preconditioner is block ILU0 with minimum
-  GMRESSolver<double> gmres;
-  AdditiveSchwarz<double> addsch;
-  addsch.set_type(AdditiveSchwarz<double>::Type::restricted);
-  BlockILU<double> ilu;
-  ilu.set_ordering(BlockOrdering<double>::Type::MDF);
-  addsch.set_local_preconditioner(&ilu);
-  gmres.set_preconditioner(&addsch);
-  gmres.set_max_inner_iterations(200);
-  gmres.set_max_outer_iterations(2);
-  gmres.set_verbosity(0);
-
-  // set nonlinear solver
-  // nonlinear solver is pseudo-time continuation solver with unsteady line search
-  PTCSolver<double> ptc;
-  ptc.set_linear_solver(&gmres);
-  ptc.set_max_iter(150);
-  ptc.set_initial_timestep(1e-1);
-  ptc.set_timestep_increase_multiplier(4.0);
-  ptc.set_abs_tol(1e-9);
-  ptc.set_line_search_type(PTCSolver<double>::LineSearchType::unsteady);
-  ptc.set_line_search_maximum_physical_change(0.2); 
-  ptc.set_line_search_maximum_residual_increase(1.02);
-  ptc.set_linear_solver_decrease_multiplier(1e-6);
-
-#ifdef ADAPT
-  // adaptive solve
-  
-  // set adjoint solver
-  AdjointSolver<double> adjoint_solver;
-  adjoint_solver.set_linear_solver(&gmres);
-  adjoint_solver.set_residual_tolerance(1e-9);
-
-  // set adaptation parameters
-  Adaptation<double> adapt(&eqn, &mesh, &mesh_geom, &fe_set, &quad_set);
-  adapt.set_primal_solver(&ptc);
-  adapt.set_adjoint_solver(&adjoint_solver);
-  adapt.set_max_iterations(n_adapt_iter);
-  adapt.set_fe_type(fe_type);
-  adapt.set_initial_polynomial_degree(poly_degree);
-  adapt.set_output_file_name("naca");
-  adapt.set_adaptation_type(adapt_type);
-  adapt.solve();
-
-#else
-  // single-solve branch
-
-  // initialize FE field
-  ParallelFEField fe_field(&mesh,&fe_set,dim,eqn.n_components(),fe_type,poly_degree);
-
-  // initialize DG discretization
-  DG<double> dg(&eqn,&fe_set,&quad_set,&fe_field,&mesh_geom);
-
-  // initialize state vector
-  BlockVector<double>* state_vec = dg.allocate_vector();
-  dg.fill_vector(u_init, state_vec);
-
-  // set the discretization
-  ptc.set_discretization(&dg);
-
-  // solve the nonlinear problem
-  ptc.solve(state_vec);
-
-  // compute output
-  double output;
-  dg.compute_output(0,state_vec,output);
-  if (comm_rank == 0) {
-    printf("output = %22.15e\n", output);
-  }
-
-  // output the solution
-  VtkIO vtkio(&fe_field, &mesh_geom, state_vec);
-  vtkio.set_n_refine(1);
-  vtkio.set_equation(&eqn);
-  vtkio.write_volume_data("naca");   
-  
-  // free state vector
-  delete state_vec;  
-
-#endif
-    
-  // finalize MPI
-  Utilities::MPI::mpi_finalize();
-  return 0;
-}
-*/
