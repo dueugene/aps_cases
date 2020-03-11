@@ -976,7 +976,7 @@ public:
       dg_eqp_c.print_greedy_test_history();
 
     } else {
-      // dg_eqp_c.set_adaptive_eqp_training(true);
+      // dg_eqp_c.set_high_dim_training(true);
       eqpd.run_weak_greedy();
     }
   

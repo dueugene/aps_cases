@@ -547,7 +547,7 @@ int main(int argc, char *argv[])
   }
 
   // run the weak greedy algorithm
-  // dg_eqp_c.set_adaptive_eqp_training(true);
+  dg_eqp_c.set_high_dim_training(true);
   dg_eqp_c.set_eqp_enforce_abs(true);
   eqpd.run_weak_greedy();
 
