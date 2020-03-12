@@ -32,7 +32,7 @@
 #include "eqn/rans_sa.h"
 #include "eqn/navier_stokes_utils.h"
 
-
+#include <string>
 // transonic RANS flow over an RAE2822 airfoil
 //
 // This case is setup for a parallel run. The cmake configuration line should look something like the following
@@ -54,7 +54,7 @@ public:
   // 2 : alpha and M
   // 3 : alpha, Re, and M
   
-  const unsigned int param_mode_ = 3;
+  const unsigned int param_mode_ = 2;
 
   // internal parameters
   std::vector<unsigned int> far_bnds_;
@@ -76,8 +76,15 @@ public:
   void init_default_parameter_bound()
   {
     // this section can be modified to change the parameter range
-    arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 3.0*M_PI/180.0}};
-    arma::Row<double> M_bnd = {{0.3,0.5}}; // subsonic
+
+    // transonic case
+    // arma::Row<double> alpha_bnd = {{2.8*M_PI/180.0, 3.0*M_PI/180.0}};
+    // arma::Row<double> M_bnd = {{0.72,0.74}};
+
+    // subsonic case
+    arma::Row<double> alpha_bnd = {{1.0*M_PI/180.0, 3.0*M_PI/180.0}};
+    arma::Row<double> M_bnd = {{0.2,0.4}};
+
     arma::Row<double> Re_bnd = {{5e6, 7e6}};
     mu_bnd_.set_size(n_parameters(),2);
     switch (param_mode_) {
@@ -281,7 +288,7 @@ public:
     dg_eqp_c.adapt()->set_adaptation_type(Adaptation<double>::type::anisotropic_h);
     
     // FE tolerance
-    dg_eqp_c.adapt()->set_target_error(1e-4);
+    dg_eqp_c.adapt()->set_target_error(2.5e-5);
     dg_eqp_c.adapt()->set_adaptation_target_type(Adaptation<double>::target_type::output);
     dg_eqp_c.adapt()->set_max_iterations(25);
     dg_eqp_c.adapt()->set_refinement_fraction(0.10);
@@ -289,9 +296,11 @@ public:
 
     // RB-EQP Greedy settings
     dg_eqp_c.set_n_max_reduced_basis(13);
-    dg_eqp_c.set_weak_greedy_tolerance(1e-3);
+    dg_eqp_c.set_weak_greedy_tolerance(7.5e-5);
     // dg_eqp_c.set_pod_tolerance(1e-10);
-    dg_eqp_c.set_eqp_tolerance(5e-4);
+    dg_eqp_c.set_eqp_tolerance(1e-5);
+    dg_eqp_c.set_eqp_output_functional_tolerance(1e-6);
+    dg_eqp_c.set_eqp_dwr_tolerance(1e-5); 
     dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
     dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
     dg_eqp_c.set_eqp_norm(EQPNorm::l2);
@@ -512,11 +521,18 @@ public:
 
 int main(int argc, char *argv[])
 {
-  #ifdef WITH_MPI
+#ifdef WITH_MPI
   Utilities::MPI::mpi_init(argc, argv);
 #endif
-
   unsigned int comm_rank = Utilities::MPI::mpi_comm_rank();
+  bool high_dim = false;
+  if (argc >= 2) {
+    int input = std::stoi(argv[1]);
+    if (input == 1) {
+      high_dim = true;
+    }
+  }
+  
   EQPDriver eqpd;
   DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
 
@@ -526,9 +542,17 @@ int main(int argc, char *argv[])
   eqpd.set_fe_solver();
   eqpd.set_rb_solver();
   eqpd.setup_eqp();
-
+  
+  if (comm_rank == 0) {
+    if (high_dim) {
+      printf("running high dimensional eqp training\n");
+    } else {
+      printf("running weak greedy eqp training\n");
+    }
+  }
+  
   // run the weak greedy algorithm
-  dg_eqp_c.set_high_dim_training(true);
+  dg_eqp_c.set_high_dim_training(high_dim);
   eqpd.run_weak_greedy();
 
 #ifdef WITH_MPI
