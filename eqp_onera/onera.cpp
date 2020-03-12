@@ -58,18 +58,28 @@ class ParametrizedRANSSA : public RANSSA<2> {
 public:
   const unsigned int param_mode = 5;
   NSUtils* nsutils_;
-  std::vector<unsigned int> far_bnds;
-  std::vector<unsigned int> foil_bnds;
-  double fs_chi_0;
+  std::vector<unsigned int> far_bnds_;
+  std::vector<unsigned int> foil_bnds_;
+  std::vector<unsigned int> symm_bnds_;  
+  double fs_chi_0_;
 
-  double alpha_0;
-  double M_0;
+  double alpha_0_;
+  double M_0_;
   
 public:
   ParametrizedRANSSA(const NSVariableType var_type_in, NSUtils* nsutils)
     : RANSSA(var_type_in),
       nsutils_(nsutils)
   {
+    M_0_ = 0.4;
+    alpha_0_ = 1.0*M_PI/180.0;
+    fs_chi_0_ = 3.0;
+  }
+
+  /** initialize with default parameter bounds */
+  void init_default_parameter_bound()
+  {
+    // this section can be modified to change the parameter range
     //arma::Row<double> alpha_bnd = {{0.0*M_PI/180.0, 3.5*M_PI/180.0}};
     arma::Row<double> sig_bnd = {{0.6,1.0}};
     arma::Row<double> kap_bnd = {{0.38,0.42}};
@@ -110,7 +120,7 @@ public:
       Error("unknown mode");      
     }
   }
-
+  
   unsigned int n_parameters() const {
     switch (param_mode) {
     case 0:
@@ -135,8 +145,10 @@ public:
     double kap = 0.41;
     double cw3 = 2.0;
     double fs_chi_log = 0.0;
-    double alpha = alpha_0;
-    double M = M_0;
+    double alpha = alpha_0_;
+    double M = M_0_;
+    double Re = 1.0e6;  // Reynolds number
+    double sa_scale = sqrt(Re);  // SA scale
     switch (param_mode) {
     case 0:
       sig = mu(0);
@@ -156,11 +168,11 @@ public:
       fs_chi_log = mu(1);
       break;
     case 4:
-      alpha = alpha_0 + mu(0);
+      alpha = alpha_0_ + mu(0);
       break;
     case 5:
-      alpha = alpha_0 + mu(0);
-      M = M_0 + mu(1);
+      alpha = alpha_0_ + mu(0);
+      M = M_0_ + mu(1);
       break;
     default:
       Error("unsupported mode");
@@ -186,7 +198,7 @@ public:
     this->cw3_ = cw3;
     };
     
-    double fs_chi = fs_chi_0*pow(10.0,fs_chi_log);      
+    double fs_chi = fs_chi_0_*pow(10.0,fs_chi_log);      
     nsutils_->set_freestream_chi(fs_chi);
 #ifdef ONERA
     nsutils_->set_angle_of_attack(0.0);
@@ -195,21 +207,44 @@ public:
     nsutils_->set_angle_of_attack(alpha);
 #endif
     nsutils_->set_mach_number(M);
+    nsutils_->set_reynolds_number(Re);
+    nsutils_->set_sa_scale(sa_scale);
+
     
     // initialize the RANS equations
     arma::Col<double> u_init = nsutils_->state();
-    set_freestream_chi(fs_chi);
+    set_freestream_chi(fs_chi);    
+    set_sa_scale(sa_scale);
+    set_dynamic_viscosity(nsutils_->dynamic_viscosity());
+    set_constant_viscosity(true);
     set_initial_state(u_init);
+
+        // set shock capturing.  For this transonic case, shock capturing is actually not required if the entropy variables are used.
+    set_shock_capturing(false);
+    // set_shock_viscosity_type(Euler::shock_viscosity_type::physical);
+
     
     // set boundary conditions
+    // set all far bounds, boundary conditions to full_state
     std::vector<double> ub = arma::conv_to<std::vector<double>>::from(u_init);
-    for (unsigned int i = 0; i < far_bnds.size(); ++i) {
-      set_boundary_parameters(far_bnds[i],ub);
+    for (unsigned int i = 0; i < far_bnds_.size(); ++i) {
+      set_boundary_type(far_bnds_[i],NSBoundaryType::full_state);
+      set_boundary_parameters(far_bnds_[i],ub);
+    }
+    
+    // set all foil boundary to adiabatic_wall
+    for (unsigned int i = 0; i < foil_bnds_.size(); ++i) {
+      set_boundary_type(foil_bnds_[i],NSBoundaryType::adiabatic_wall);
     }
 
-    // drag output
+    // set all symmetry boundaries to summetry_plane
+    for (unsigned int i = 0; i < symm_bnds_.size(); ++i) {
+      set_boundary_type(symm_bnds_[i],NSBoundaryType::symmetry_plane);
+    }
+
+    // output is drag on the foil.  Note that this is the directional force in the direction of the flow.
     set_output_type(0,NSOutputType::directional_force);
-    set_output_boundary_ids(0,foil_bnds);
+    set_output_boundary_ids(0,foil_bnds_);
     const double qinf = nsutils_->dynamic_pressure();
 #ifdef ONERA
     const double sca = 2.0/1.15315084119231;
@@ -218,6 +253,7 @@ public:
     std::vector<double> bparams = {cos(alpha)/qinf,sin(alpha)/qinf,0.0};
 #endif
     set_output_parameters(0,bparams);
+
   }
 
   virtual const arma::Mat<double>& parameter_domain() const
@@ -350,92 +386,58 @@ public:
   };
 
   void load_rae() {
-    std::string gmsh_file = "../rae2822_level5.m4.msh";
-  
-    // flow parameters
-    double M = 0.3;  // Mach number
-    //double M = 0.734;
-    double alpha = 2.0*M_PI/180.0;  // angle of attack (in radians)
-    double Re = 6.5e6;  // Reynolds number
-    double fs_chi = 3.0;  // freestream chi for SA equations
-    double sa_scale = sqrt(Re);  // SA scale
-
-    eqn.alpha_0 = alpha;
-    eqn.M_0 = M;
-    
-    nsutils.set_mach_number(M);
-    nsutils.set_reynolds_number(Re);
-    nsutils.set_angle_of_attack(alpha);
-    nsutils.set_freestream_chi(fs_chi);
-    nsutils.set_sa_scale(sa_scale);
-
-    // initialize the RANS equations
-    arma::Col<double> u_init = nsutils.state();
-    eqn.set_freestream_chi(fs_chi);
-    eqn.set_sa_scale(sa_scale);
-    eqn.set_dynamic_viscosity(nsutils.dynamic_viscosity());
-    eqn.set_constant_viscosity(true);
-    eqn.set_initial_state(u_init);
-
-    // set shock capturing.  For this transonic case, shock capturing is actually not required if the entropy variables are used.
-    eqn.set_shock_capturing(false);
-    //eqn.set_shock_viscosity_type(Euler::shock_viscosity_type::physical);
-
-    // set boundary conditions
-    std::vector<double> ub = arma::conv_to<std::vector<double>>::from(u_init);
-    eqn.set_n_boundaries(4);
-    // inflow
-    eqn.set_boundary_type(2,NSBoundaryType::full_state);
-    eqn.set_boundary_parameters(2,ub);
-    // outflow
-    eqn.set_boundary_type(3,NSBoundaryType::full_state);
-    eqn.set_boundary_parameters(3,ub);
-    // plane
-    eqn.set_boundary_type(1,NSBoundaryType::adiabatic_wall);
-
-    // far field boundaries
-    eqn.fs_chi_0 = 3.0;
-    eqn.far_bnds.resize(2);
-    eqn.far_bnds[0] = 2;
-    eqn.far_bnds[1] = 3;
-    eqn.foil_bnds.resize(1);
-    eqn.foil_bnds[0] = 1;
-
-    // output is drag on the foil.  Note that this is the directional force in the direction of the flow.
-    eqn.set_n_outputs(1);
-    eqn.set_output_type(0,NSOutputType::directional_force);
-    std::vector<unsigned int> bids = {1};
-    eqn.set_output_boundary_ids(0,bids);
-    const double qinf = nsutils.dynamic_pressure();
-    std::vector<double> bparams = {cos(alpha)/qinf,sin(alpha)/qinf,0.0};
-    eqn.set_output_parameters(0,bparams);
-
+    std::string gmsh_file = "../rae2822_level5.m4.msh";    
     // extract surface mesh; the surface mesh is needed for RANS wall-distance calculation
-    std::vector<bool> wall_marker = {false, true, false, false}; // boundary ID 2 is the wall
-
-    // extract surface mesh
+    std::vector<bool> wall_marker = {false, true, false, false}; // boundary ID 1 is the wall
     {
       Gmsh gmsh;    
       Mesh mesh(dim);
       MeshGeometry mesh_geom(&mesh,&fe_set,geom_degree);
+
+      // read the gmesh on the root process and then broadcast
       if (comm_rank == 0) {
         gmsh.read_msh_file(gmsh_file);
       }
-      gmsh.mpi_bcast();  
+      gmsh.mpi_bcast();
+
+      // load the mesh and extract the surface mesh 
       gmsh.load_mesh(mesh,mesh_geom);  
-      
-      // extract surface mesh
       mesh_geom.set_wall_marker(wall_marker);
       mesh_geom.extract_surface_geometry(wall_marker, surf_mesh, surf_geom);
     }
-    
+
+    // load the mesh
     Gmsh gmsh;
-    mesh.set_enforce_one_regular_hanging_node(true);
     if (comm_rank == 0) {
       gmsh.read_msh_file(gmsh_file);
+      printf("nelements = %d\n", gmsh.n_elems);
     }
     gmsh.load_mesh(mesh, mesh_geom);
+    
+#ifdef WITH_MPI
+    // paralellize the mesh and geometry
+    mesh.prepare_parallelization();
+    mesh.execute_repartition();
+    mesh_geom.execute_repartition();
+    mesh.finalize_repartition();
+#endif
+    
+    // set wall geometry and initialize wall distance
+    mesh_geom.set_wall_geometry(surf_mesh, surf_geom);
+    mesh_geom.init_wall_distance();
+    
+    // set mesh info to eqn
+    eqn.set_n_boundaries(4);
+    // output (drag)
+    eqn.set_n_outputs(1);
 
+    // set far-field boundary indices
+    eqn.far_bnds_.resize(2);
+    eqn.far_bnds_[0] = 2;
+    eqn.far_bnds_[1] = 3;
+    eqn.foil_bnds_.resize(1);
+    eqn.foil_bnds_[0] = 1;
+    
   };
 
   void load_mda() {
@@ -448,8 +450,8 @@ public:
     double fs_chi = 5.0;  // freestream chi for SA equations
     double sa_scale = 10000;  // SA scale
 
-    eqn.alpha_0 = alpha;
-    eqn.M_0 = M;
+    eqn.alpha_0_ = alpha;
+    eqn.M_0_ = M;
 
     nsutils.set_mach_number(M);
     nsutils.set_reynolds_number(Re);
@@ -483,14 +485,14 @@ public:
     eqn.set_boundary_type(4,NSBoundaryType::adiabatic_wall);
     
     // far field boundaries
-    eqn.fs_chi_0 = 5.0;
-    eqn.far_bnds.resize(1);
-    eqn.far_bnds[0] = 1;
+    eqn.fs_chi_0_ = 5.0;
+    eqn.far_bnds_.resize(1);
+    eqn.far_bnds_[0] = 1;
 
-    eqn.foil_bnds.resize(3);
-    eqn.foil_bnds[0] = 2;
-    eqn.foil_bnds[1] = 3;
-    eqn.foil_bnds[2] = 4;
+    eqn.foil_bnds_.resize(3);
+    eqn.foil_bnds_[0] = 2;
+    eqn.foil_bnds_[1] = 3;
+    eqn.foil_bnds_[2] = 4;
 
 
     // output is drag on the foil.  Note that this is the directional force in the direction of the flow.
@@ -532,65 +534,6 @@ public:
 
   void load_onera() {
     std::string gmsh_file = "../oneram6_very_coarse.msh";
-  
-    // flow parameters
-    double M = 0.4;  // Mach number
-    double alpha = 1.0*M_PI/180.0;  // angle of attack (in radians)
-    double Re = 1.0e6;  // Reynolds number
-    double fs_chi = 3.0;  // freestream chi for SA equations
-    double sa_scale = sqrt(Re);  // SA scale
-
-    eqn.alpha_0 = alpha;
-    eqn.M_0 = M;
-
-    nsutils.set_mach_number(M);
-    nsutils.set_reynolds_number(Re);
-    nsutils.set_angle_of_attack(0.0);
-    nsutils.set_sideslip(alpha);
-    nsutils.set_freestream_chi(fs_chi);
-    nsutils.set_sa_scale(sa_scale);
-
-    // initialize the RANS equations
-    arma::Col<double> u_init = nsutils.state();
-    eqn.set_freestream_chi(fs_chi);
-    eqn.set_sa_scale(sa_scale);
-    eqn.set_dynamic_viscosity(nsutils.dynamic_viscosity());
-    eqn.set_constant_viscosity(true);
-    eqn.set_initial_state(u_init);
-
-    // set shock capturing.  For this transonic case, shock capturing is actually not required if the entropy variables are used.
-    eqn.set_shock_capturing(false);
-    //eqn.set_shock_viscosity_type(Euler::shock_viscosity_type::physical);
-
-    // set boundary conditions
-    std::vector<double> ub = arma::conv_to<std::vector<double>>::from(u_init);
-    eqn.set_n_boundaries(4);
-
-    eqn.set_boundary_type(2,NSBoundaryType::full_state);
-    eqn.set_boundary_parameters(2,ub);
-    // wing
-    eqn.set_boundary_type(1,NSBoundaryType::adiabatic_wall);
-    // symmetry 
-    eqn.set_boundary_type(3,NSBoundaryType::symmetry_plane);
-    
-    // far field boundaries
-    eqn.fs_chi_0 = 3.0;
-    eqn.far_bnds.resize(1);
-    eqn.far_bnds[0] = 2;
-
-    eqn.foil_bnds.resize(1);
-    eqn.foil_bnds[0] = 1;
-
-    // output is drag on the foil.  Note that this is the directional force in the direction of the flow.
-    eqn.set_n_outputs(1);
-    eqn.set_output_type(0,NSOutputType::directional_force);
-    std::vector<unsigned int> bids = {1};
-    eqn.set_output_boundary_ids(0,bids);
-    const double sca = 2.0/1.15315084119231;
-    const double qinf = nsutils.dynamic_pressure();
-    std::vector<double> bparams = {sca*cos(alpha)/qinf,0.0,sca*sin(alpha)/qinf};
-    eqn.set_output_parameters(0,bparams);
-
     // extract surface mesh; the surface mesh is needed for RANS wall-distance calculation
     std::vector<bool> wall_marker = {false,true,false,false};
 
@@ -616,6 +559,32 @@ public:
       gmsh.read_msh_file(gmsh_file);
     }
     gmsh.load_mesh(mesh, mesh_geom);
+
+    #ifdef WITH_MPI
+    // paralellize the mesh and geometry
+    mesh.prepare_parallelization();
+    mesh.execute_repartition();
+    mesh_geom.execute_repartition();
+    mesh.finalize_repartition();
+#endif
+    
+    // set wall geometry and initialize wall distance
+    mesh_geom.set_wall_geometry(surf_mesh, surf_geom);
+    mesh_geom.init_wall_distance();
+
+    // set mesh info to eqn
+    eqn.set_n_boundaries(4);
+    eqn.set_n_outputs(1);
+        
+    // set boundaries 
+    eqn.far_bnds_.resize(1);
+    eqn.far_bnds_[0] = 2;
+    // wing
+    eqn.foil_bnds_.resize(1);
+    eqn.foil_bnds_[0] = 1;
+    // symmetry
+    eqn.symm_bnds_.resize(1);
+    eqn.symm_bnds_[0] = 3;
 
   };
   
@@ -876,10 +845,7 @@ public:
 #ifdef WITH_MPI
     Utilities::MPI::mpi_init(argc, argv);
 #endif
-    std::string mesh_file = "mesh.dat";
-    std::string train_file = "train.dat";
-    std::string test_file = "test.dat";
-  
+    unsigned int comm_rank = Utilities::MPI::mpi_comm_rank();
     EQPDriver eqpd;
     DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
   
@@ -887,99 +853,22 @@ public:
     //eqpd.load_rae();
     //eqpd.load_mda();
     eqpd.load_onera();
-    if (Utilities::MPI::mpi_comm_rank() == 0) {
+    if (comm_rank == 0) {
       printf("param mode = %d\n", eqpd.eqn.param_mode);
     }
-  
-#ifdef WITH_MPI
-    eqpd.mesh.prepare_parallelization();
-    eqpd.mesh.execute_repartition();
-    eqpd.mesh_geom.execute_repartition();
-    eqpd.mesh.finalize_repartition();
-#endif
     
-    // set wall geometry and initialize wall distance
-    eqpd.mesh_geom.set_wall_geometry(eqpd.surf_mesh, eqpd.surf_geom);
-    eqpd.mesh_geom.init_wall_distance();
-  
+    eqpd.eqn.init_default_parameter_bound();
     eqpd.set_fe_solver();
     eqpd.set_rb_solver();
     eqpd.setup_eqp();
 
-    if (Utilities::MPI::mpi_comm_rank() == 0 &&
-        (eqpd.Xi_train.n_elem == eqpd.Xi_test.n_elem) && 
-        (arma::norm(arma::vectorise(eqpd.Xi_train - eqpd.Xi_test)) == 0)) {
-      printf("setting test = train\n");
-      test_file = train_file;
+    if (comm_rank == 0) {
+
     }
   
-
-    bool pod_test = false;
-    if (pod_test) {
-      bool restart = true;
-  
-  
-      if (restart) {
-        eqpd.load_mesh(mesh_file);
-        // eqpd.load_training_data(train_file);
-        eqpd.load_test_data(test_file);    
-        dg_eqp_c.init();
-
-        std::cout << "n_dofs = " <<  dg_eqp_c.fe_field()->n_dofs() << std::endl;
-        std::cout << "n_train = " << eqpd.Xi_train.n_cols << std::endl;
-        std::cout << "n_test = " << eqpd.Xi_test.n_cols << std::endl;
-
-      } else {
-        eqpd.eqn.set_parameters(eqpd.Xi_train.col(0));
-        eqpd.run_adaptive_fe_solve();
-        const BlockVector<double>* fe_init_vec = dg_eqp_c.adapt()->state_vector();
-        dg_eqp_c.set_test_init_fe_state(fe_init_vec);
-
-        std::cout << "solving for training states" << std::endl;
-        dg_eqp_c.solve_training_states();
-
-        std::cout << "solving for test states" << std::endl;
-        dg_eqp_c.solve_test_states();
+    // dg_eqp_c.set_high_dim_training(true);
+    eqpd.run_weak_greedy();
     
-        eqpd.save_mesh(mesh_file);
-        // eqpd.save_training_data(train_file);
-        eqpd.save_test_data(test_file);
-      }
-
-
-      dg_eqp_c.pod_training_states();
-
-      std::cout << "n_rb = " << dg_eqp_c.n_reduced_basis() << std::endl;
-  
-      dg_eqp_c.compute_eqp_weights();
-
-      DGEQPEvaluator<double> dg_eqp_e;
-      dg_eqp_c.set_evaluator(&dg_eqp_e);
-      dg_eqp_c.construct_eqp_evaluator(&dg_eqp_e);
-  
-      // running test
-      arma::Col<double> rb_init_vec;
-      BlockVector<double>* fe_init_vec = dg_eqp_c.training_state(0);
-      dg_eqp_c.project_fe_vector_onto_rb(fe_init_vec, rb_init_vec);  
-      dg_eqp_c.set_test_init_rb_state(rb_init_vec);
-      dg_eqp_c.set_test_init_fe_state(fe_init_vec);
-
-      // BlockVector<double>* alpha_rb = dg_eqp_e.allocate_vector();
-      // BlockVector<double>* res_rb = dg_eqp_e.allocate_vector();
-      // for (unsigned int i = 0; i < alpha_rb->n(); ++i) {
-      //   alpha_rb->value(i) = rb_init_vec(i);
-      // }
-      // dg_eqp_e.compute_residual(alpha_rb, res_rb, nullptr);
-
-
-      dg_eqp_c.run_test();
-      dg_eqp_c.print_greedy_test_history();
-
-    } else {
-      // dg_eqp_c.set_high_dim_training(true);
-      eqpd.run_weak_greedy();
-    }
-  
 #ifdef WITH_MPI
     Utilities::MPI::mpi_finalize();
 #endif
