@@ -38,8 +38,8 @@
 #include "eqn/navier_stokes_utils.h"
 
 //#define FP
-//#define RAE
-#define ONERA
+#define RAE
+//#define ONERA
 /**
  * Parametrized RANS-SA equation for UQ
  * The three parameters are as follows: 1) sigma, 2) kappa, 3) cw_3
@@ -62,7 +62,7 @@ public:
   std::vector<unsigned int> foil_bnds_;
   std::vector<unsigned int> symm_bnds_;  
   double fs_chi_0_;
-
+  double Re_0_;
   double alpha_0_;
   double M_0_;
   
@@ -74,6 +74,7 @@ public:
     M_0_ = 0.4;
     alpha_0_ = 1.0*M_PI/180.0;
     fs_chi_0_ = 3.0;
+    Re_0_ = 9.0e6;
   }
 
   /** initialize with default parameter bounds */
@@ -147,7 +148,7 @@ public:
     double fs_chi_log = 0.0;
     double alpha = alpha_0_;
     double M = M_0_;
-    double Re = 1.0e6;  // Reynolds number
+    double Re = Re_0_;  // Reynolds number
     double sa_scale = sqrt(Re);  // SA scale
     switch (param_mode) {
     case 0:
@@ -850,9 +851,9 @@ public:
     DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
   
     //eqpd.load_fp();
-    //eqpd.load_rae();
+    eqpd.load_rae();
     //eqpd.load_mda();
-    eqpd.load_onera();
+    //eqpd.load_onera();
     if (comm_rank == 0) {
       printf("param mode = %d\n", eqpd.eqn.param_mode);
     }
