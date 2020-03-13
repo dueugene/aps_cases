@@ -38,8 +38,9 @@
 #include "eqn/navier_stokes_utils.h"
 
 //#define FP
-#define RAE
-//#define ONERA
+//#define RAE
+#define ONERA
+
 /**
  * Parametrized RANS-SA equation for UQ
  * The three parameters are as follows: 1) sigma, 2) kappa, 3) cw_3
@@ -50,6 +51,7 @@
  * param_mode 4: alpha
  * param_mode 5: alpha, mach
  */
+
 #ifdef ONERA
 class ParametrizedRANSSA : public RANSSA<3> {
 #else
@@ -561,7 +563,7 @@ public:
     }
     gmsh.load_mesh(mesh, mesh_geom);
 
-    #ifdef WITH_MPI
+#ifdef WITH_MPI
     // paralellize the mesh and geometry
     mesh.prepare_parallelization();
     mesh.execute_repartition();
@@ -851,9 +853,13 @@ public:
     DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
   
     //eqpd.load_fp();
-    eqpd.load_rae();
     //eqpd.load_mda();
-    //eqpd.load_onera();
+#if defined RAE
+    eqpd.load_rae();
+#elif defined ONERA
+    eqpd.load_onera();
+#endif
+    
     if (comm_rank == 0) {
       printf("param mode = %d\n", eqpd.eqn.param_mode);
     }
