@@ -65,7 +65,8 @@ public:
   // 1 : M only
   // 2 : alpha and M
   // 3 : alpha, Re, and M
-  // 4 : alpha, Re, and M, with FFD
+  // 4 : alpha, and M, with FFD
+  // 5 : just FFD parameters
 
   const unsigned int param_mode_ = 4;
 
@@ -90,10 +91,10 @@ public:
   void init_default_parameter_bound()
   {
     // this section can be modified to change the parameter range
-    arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 5.0*M_PI/180.0}};
-    arma::Row<double> M_bnd = {{0.3,0.5}};
+    arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 2.0*M_PI/180.0}};
+    arma::Row<double> M_bnd = {{0.2,0.5}};
     arma::Row<double> Re_bnd = {{5e3, 8e3}};
-    arma::Row<double> geom_delta_bnd = {{-0.2, 0.2}};
+    arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
     mu_bnd_.set_size(n_parameters(),2);
     switch (param_mode_) {
     case 0:
@@ -114,11 +115,15 @@ public:
     case 4:
       mu_bnd_.row(0) = alpha_bnd;
       mu_bnd_.row(1) = M_bnd;
-      mu_bnd_.row(2) = Re_bnd;
-      for (unsigned int i = 3; i < n_parameters(); ++i) {
+      // mu_bnd_.row(2) = Re_bnd;
+      for (unsigned int i = 2; i < n_parameters(); ++i) {
         mu_bnd_.row(i) = geom_delta_bnd;
       }
       break;
+    case 5:
+      for (unsigned int i = 0; i < n_parameters(); ++i) {
+        mu_bnd_.row(i) = geom_delta_bnd;
+      }
     default:
       Error("unknown mode");
     }
@@ -136,7 +141,9 @@ public:
     case 3:
       return 3;
     case 4:
-      return 3 + ffd_->get_n_dof();
+      return 2 + ffd_->get_n_dof();
+    case 5:
+      return ffd_->get_n_dof();
     default:
       Error("unsupported mode");
     }
@@ -156,14 +163,16 @@ public:
       M = mu_(0);
       break;
     case 2:
+    case 4:
       alpha = mu_(0);
       M = mu_(1);
       break;
     case 3:
-    case 4:
       alpha = mu_(0);
       M = mu_(1);
       Re = mu_(2);
+      break;
+    case 5:
       break;
     default:
       Error("unknown mode");
@@ -207,7 +216,10 @@ public:
 
     // set ffd parameters
     if (param_mode_ == 4) {
-      ffd_->set_transformed_control_point(mu.subvec(3,3 + ffd_->get_n_dof() - 1),1);
+      ffd_->set_transformed_control_point(mu.subvec(2,2 + ffd_->get_n_dof() - 1),1);
+    }
+    if (param_mode_ == 5) {
+      ffd_->set_transformed_control_point(mu,1);
     }
   }
 
@@ -308,7 +320,7 @@ public:
 
     // set training parameters
     arma::arma_rng::set_seed(0);
-    dg_eqp_c.generate_structured_parameter_set(10,Xi_train);
+    dg_eqp_c.generate_structured_parameter_set(1,Xi_train);
     dg_eqp_c.set_training_parameters(Xi_train);
 
     // set test parameters
@@ -510,7 +522,7 @@ int main(int argc, char *argv[])
   // setup ffd here.
   // set mesh transformation
   arma::Mat<double> bounds = {{-0.5,1.5},{-1.0,1.0}};
-  std::vector<unsigned int> n_points = {3,3};
+  std::vector<unsigned int> n_points = {4,4};
   unsigned int continuity = 0;
   // initialize ffd
   FFD ffd(eqpd.dim, bounds, n_points, continuity);
@@ -527,8 +539,23 @@ int main(int argc, char *argv[])
   eqpd.set_rb_solver();
   eqpd.setup_eqp();
 
-  // run the weak greedy algorithm
+  // you may override any default eqp settings here
+  // dg_eqp_c.adapt()->set_target_error(1e-5);
+  // dg_eqp_c.adapt()->set_max_iterations(10);
+  // dg_eqp_c.set_n_max_reduced_basis(16);
+  // dg_eqp_c.set_weak_greedy_tolerance(1e-3);
+  // dg_eqp_c.set_eqp_tolerance(eqp_tol);
+  // dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
+  // dg_eqp_c.set_eqp_norm(EQPNorm::broken_h1);
+  // dg_eqp_c.set_eqp_target_type(DGEQPConstructor<double>::EQPTargetType::output);
+  // dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
+  dg_eqp_c.set_write_reduced_mesh(true);
+  dg_eqp_c.set_write_reduced_basis(true);
+  dg_eqp_c.set_output_file_name("naca_laminar");
+
   dg_eqp_c.set_high_dim_training(true);
+
+  // run the weak greedy algorithm
   eqpd.run_weak_greedy();
 
 #ifdef WITH_MPI
