@@ -283,7 +283,7 @@ public:
     dg_eqp_c.adapt()->set_adaptation_type(Adaptation<double>::type::anisotropic_h);
     
     // FE tolerance
-    dg_eqp_c.adapt()->set_target_error(5e-4);
+    dg_eqp_c.adapt()->set_target_error(2.5e-4);
     dg_eqp_c.adapt()->set_adaptation_target_type(Adaptation<double>::target_type::output);
     dg_eqp_c.adapt()->set_max_iterations(25);
     dg_eqp_c.adapt()->set_refinement_fraction(0.15);
@@ -293,7 +293,10 @@ public:
     dg_eqp_c.set_n_max_reduced_basis(13);
     dg_eqp_c.set_weak_greedy_tolerance(1e-3);
     // dg_eqp_c.set_pod_tolerance(1e-10);
-    dg_eqp_c.set_eqp_tolerance(1e-4);
+    dg_eqp_c.set_eqp_tolerance(5e-4);
+    dg_eqp_c.set_eqp_output_functional_tolerance(1e-5);
+    dg_eqp_c.set_eqp_dwr_tolerance(5e-4); 
+ 
     dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
     dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
     dg_eqp_c.set_eqp_norm(EQPNorm::l2);
