@@ -553,6 +553,7 @@ int main(int argc, char *argv[])
   
   // run the weak greedy algorithm
   dg_eqp_c.set_high_dim_training(high_dim);
+  dg_eqp_c.set_high_dim_training(high_dim);
   eqpd.run_weak_greedy();
 
 #ifdef WITH_MPI

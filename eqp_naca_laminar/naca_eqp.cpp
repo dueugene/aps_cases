@@ -557,6 +557,7 @@ int main(int argc, char *argv[])
   dg_eqp_c.set_output_file_name("naca_laminar");
 
   dg_eqp_c.set_high_dim_training(true);
+  dg_eqp_c.set_adaptive_eqp_training(true);
 
   // run the weak greedy algorithm
   eqpd.run_weak_greedy();
