@@ -124,6 +124,7 @@ public:
       for (unsigned int i = 0; i < n_parameters(); ++i) {
         mu_bnd_.row(i) = geom_delta_bnd;
       }
+      break;
     default:
       Error("unknown mode");
     }
