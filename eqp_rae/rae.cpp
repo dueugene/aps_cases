@@ -4,6 +4,7 @@
 #include <cmath>
 
 #define WITH_MPI
+#define WITH_FFD
 
 #include "base/mpi_wrapper.h"
 #include "base/serialization.h"
@@ -12,6 +13,7 @@
 #include "disc/dg_eqp.h"
 #include "disc/dg_adaptation.h"
 #include "fe/fe.h"
+#include "mesh/ffd.h"
 #include "mesh/mesh.h"
 #include "mesh/fe_cache.h"
 #include "mesh/mesh_generator.h"
@@ -53,8 +55,10 @@ public:
   // 1 : M only
   // 2 : alpha and M
   // 3 : alpha, Re, and M
+  // 4 : alpha, and M, with FFD
+  // 5 : just FFD parameters
   
-  const unsigned int param_mode_ = 2;
+  const unsigned int param_mode_ = 5;
 
   // internal parameters
   std::vector<unsigned int> far_bnds_;
@@ -63,11 +67,14 @@ private:
   NSUtils* nsutils_;
   arma::Col<double> mu_;
   arma::Mat<double> mu_bnd_;
+public:
+  FFD* ffd_;
   
 public:
-  ParametrizedRAE(unsigned int dim, const NSVariableType var_type_in, NSUtils* nsutils)
+  ParametrizedRAE(unsigned int dim, const NSVariableType var_type_in, NSUtils* nsutils, FFD* ffd = nullptr)
     : RANSSA(var_type_in),
-      nsutils_(nsutils)
+      nsutils_(nsutils),
+      ffd_(ffd)
   {
     Assert(dim == 2,"unsupported dim");
   }
@@ -78,14 +85,15 @@ public:
     // this section can be modified to change the parameter range
 
     // transonic case
-    // arma::Row<double> alpha_bnd = {{2.8*M_PI/180.0, 3.0*M_PI/180.0}};
-    // arma::Row<double> M_bnd = {{0.72,0.74}};
+    arma::Row<double> alpha_bnd = {{2.8*M_PI/180.0, 3.0*M_PI/180.0}};
+    arma::Row<double> M_bnd = {{0.72,0.74}};
 
     // subsonic case
-    arma::Row<double> alpha_bnd = {{1.0*M_PI/180.0, 3.0*M_PI/180.0}};
-    arma::Row<double> M_bnd = {{0.2,0.4}};
+    // arma::Row<double> alpha_bnd = {{1.0*M_PI/180.0, 3.0*M_PI/180.0}};
+    // arma::Row<double> M_bnd = {{0.2,0.4}};
 
     arma::Row<double> Re_bnd = {{5e6, 7e6}};
+    arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
     mu_bnd_.set_size(n_parameters(),2);
     switch (param_mode_) {
     case 0:
@@ -103,6 +111,18 @@ public:
       mu_bnd_.row(1) = M_bnd;
       mu_bnd_.row(2) = Re_bnd;
       break;
+    case 4:
+      mu_bnd_.row(0) = alpha_bnd;
+      mu_bnd_.row(1) = M_bnd;
+      for (unsigned int i = 2; i < n_parameters(); ++i) {
+        mu_bnd_.row(i) = geom_delta_bnd;
+      }
+      break;
+    case 5:
+      for (unsigned int i = 0; i < n_parameters(); ++i) {
+        mu_bnd_.row(i) = geom_delta_bnd;
+      }
+      break;
     default:
       Error("unknown mode");
     }
@@ -119,6 +139,10 @@ public:
       return 2;
     case 3:
       return 3;
+    case 4:
+      return 2 + ffd_->get_n_dof();
+    case 5:
+      return ffd_->get_n_dof();
     default:
       Error("unsupported mode");
     }
@@ -128,7 +152,8 @@ public:
   {
     // Map the parameter to the flow variables.  The actual mapping depends on the parameter mode.
     alpha = 2.79*M_PI/180;
-    M = 0.739;
+    // M = 0.739; // transonic
+    M = 0.35; // subsonic
     Re = 6.5e6;
     switch (param_mode_) {
     case 0:
@@ -138,6 +163,7 @@ public:
       M = mu_(0);
       break;
     case 2:
+    case 4:
       alpha = mu_(0);
       M = mu_(1);
       break;
@@ -145,6 +171,8 @@ public:
       alpha = mu_(0);
       M = mu_(1);
       Re = mu_(2);
+      break;
+    case 5:
       break;
     default:
       Error("unknown mode");
@@ -200,6 +228,13 @@ public:
     std::vector<double> bparams = {cos(alpha)/qinf,sin(alpha)/qinf,0.0};
     set_output_parameters(0,bparams);
 
+    // set ffd parameters
+    if (param_mode_ == 4) {
+      ffd_->set_transformed_control_point(mu.subvec(2,2 + ffd_->get_n_dof() - 1),1);
+    }
+    if (param_mode_ == 5) {
+      ffd_->set_transformed_control_point(mu,1);
+    }
   }
 
   virtual const arma::Mat<double>& parameter_domain() const
@@ -327,7 +362,7 @@ public:
 
     // set training parameters
     arma::arma_rng::set_seed(0);
-    dg_eqp_c.generate_structured_parameter_set(10,Xi_train);
+    dg_eqp_c.generate_structured_parameter_set(1,Xi_train);
     dg_eqp_c.set_training_parameters(Xi_train);
 
     // set test parameters
@@ -536,6 +571,20 @@ int main(int argc, char *argv[])
   EQPDriver eqpd;
   DGEQPConstructor<double>& dg_eqp_c = eqpd.dg_eqp_c;
 
+#ifdef WITH_FFD
+  // setup ffd here.
+  // set mesh transformation
+  arma::Mat<double> bounds = {{-0.5,1.5},{-0.5,0.5}};
+  std::vector<unsigned int> n_points = {6,5};
+  unsigned int continuity = 0;
+  // initialize ffd
+  FFD ffd(eqpd.dim, bounds, n_points, continuity);
+
+  // pass the ffd and mesh transform information
+  eqpd.eqn.ffd_ = &ffd;
+  eqpd.mesh_geom.set_ffd(&ffd);
+#endif
+
   // call EQPDriver intialization routines
   eqpd.load_rae_mesh();
   eqpd.eqn.init_default_parameter_bound();
@@ -550,10 +599,24 @@ int main(int argc, char *argv[])
       printf("running weak greedy eqp training\n");
     }
   }
+
+  // you may override any default eqp settings here
+  // dg_eqp_c.adapt()->set_target_error(1e-5);
+  // dg_eqp_c.adapt()->set_max_iterations(10);
+  // dg_eqp_c.set_n_max_reduced_basis(16);
+  // dg_eqp_c.set_weak_greedy_tolerance(1e-3);
+  // dg_eqp_c.set_eqp_tolerance(eqp_tol);
+  // dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
+  // dg_eqp_c.set_eqp_norm(EQPNorm::broken_h1);
+  // dg_eqp_c.set_eqp_target_type(DGEQPConstructor<double>::EQPTargetType::output);
+  // dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
+  dg_eqp_c.set_write_reduced_mesh(true);
+  dg_eqp_c.set_write_reduced_basis(true);
+  dg_eqp_c.set_output_file_name("rae_subsonic_ffd");
   
   // run the weak greedy algorithm
   dg_eqp_c.set_high_dim_training(high_dim);
-  dg_eqp_c.set_high_dim_training(high_dim);
+  dg_eqp_c.set_adaptive_eqp_training(high_dim);
   eqpd.run_weak_greedy();
 
 #ifdef WITH_MPI
