@@ -65,7 +65,7 @@ lattice.interpolation_type_v = 'KEY_BSPLINE'
 print(lattice.interpolation_type_u)
 print(lattice.points_u)
 print(lattice.points)
-x
+
 # attach lattice as modifier to all mesh objects in scene
 scene = bpy.context.scene
 for ob in scene.objects:
