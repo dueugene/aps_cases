@@ -50,14 +50,17 @@ lattice = bpy.data.lattices.new("Lattice") # add a new lattice
 lattice_ob = bpy.data.objects.new("Lattice", lattice) # create a new object with the lattice
 # modifiy lattice properties
 # location, scale, and rotation_euler is enough to define the bounding box in 3 space
-lattice_ob.location = (0, 0, 0) # location of centroid of lattice?
-lattice_ob.scale = (4, 4, 4) # make the lattice larger
+lattice_ob.location = (0.5, 0, 0) # location of centroid of lattice?
+lattice_ob.scale = (1.5, 0.6, 1) # make the lattice larger
 lattice_ob.rotation_euler = (0, 0, 0)
+# lattice_ob.location = (0, 0, 0) # location of centroid of lattice?
+# lattice_ob.scale = (4, 4, 4) # make the lattice larger
+# lattice_ob.rotation_euler = (0, 0, 0)
 print(lattice_ob.rotation_euler)
 print(lattice_ob.location)
 
 # points_u/v/w, interpolation_type_u/v/w controls the transformation behaviour within bounding box
-lattice.points_u = 4
+lattice.points_u = 6
 lattice.points_v = 4
 lattice.points_w = 1
 lattice.interpolation_type_u = 'KEY_BSPLINE' # KEY_BSPLINE, KEY_LINEAR, KEY_BSPLINE, KEY_CARDINAL
