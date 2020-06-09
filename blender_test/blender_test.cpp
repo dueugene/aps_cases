@@ -16,7 +16,8 @@
 #include "fe/fe_set.h"
 
 // blender files
-
+#include "BKE_main.h"
+#include "BKE_lattice.h" /* for lattice*/
 
 int main(int argc, char *argv[])
 {
@@ -54,7 +55,9 @@ int main(int argc, char *argv[])
   vtkio.write_volume_data("ffd_transform");
 
   // test blender transformation engine
-
+  Main* main_scene = BKE_main_new();
+  char lattice_name[] = "test_name";
+  Lattice* blen_lattice = BKE_lattice_add(main_scene, lattice_name);
 
   delete bvec;
 
