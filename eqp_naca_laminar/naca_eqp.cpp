@@ -38,7 +38,7 @@
 #include "mesh/fe_field.h"
 #include "mesh/mesh_geometry.h"
 #endif
-#include "mesh/ffd.h"
+#include "transform/constrained_ffd.h"
 
 #include "disc/dg_adaptation.h"
 
@@ -95,6 +95,7 @@ public:
     arma::Row<double> M_bnd = {{0.2,0.5}};
     arma::Row<double> Re_bnd = {{5e3, 8e3}};
     arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
+    // arma::Row<double> geom_delta_bnd = {{-0.0, 0.0}};
     mu_bnd_.set_size(n_parameters(),2);
     switch (param_mode_) {
     case 0:
@@ -135,6 +136,7 @@ public:
   {
     switch (param_mode_) {
     case 0:
+      // fall through
     case 1:
       return 1;
     case 2:
@@ -217,10 +219,12 @@ public:
 
     // set ffd parameters
     if (param_mode_ == 4) {
-      ffd_->set_transformed_control_point(mu.subvec(2,2 + ffd_->get_n_dof() - 1),1);
+      arma::Col<double> params = mu.subvec(2,2 + ffd_->get_n_dof() - 1);
+      ffd_->set_params(params);
     }
     if (param_mode_ == 5) {
-      ffd_->set_transformed_control_point(mu,1);
+      arma::Col<double> params = mu;
+      ffd_->set_params(params);
     }
   }
 
@@ -301,7 +305,6 @@ public:
     dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
     dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
     dg_eqp_c.set_eqp_norm(EQPNorm::l2);
-    dg_eqp_c.set_include_constant_rb(false);
     dg_eqp_c.set_include_stab_rb(false);
     dg_eqp_c.set_n_eqp_smoothing_iterations(3);
     dg_eqp_c.set_eqp_verbosity(-1);
@@ -329,7 +332,7 @@ public:
 
     // set test parameters
     arma::arma_rng::set_seed(100);
-    unsigned int n_test = 10;
+    unsigned int n_test = 25;
     dg_eqp_c.generate_random_parameter_set(n_test, Xi_test);
    
     dg_eqp_c.set_test_parameters(Xi_test);
@@ -524,13 +527,23 @@ int main(int argc, char *argv[])
 
 #ifdef WITH_FFD
   // setup ffd here.
-  // set mesh transformation
-  arma::Mat<double> bounds = {{-0.5,1.5},{-1.0,1.0}};
-  std::vector<unsigned int> n_points = {4,4};
-  unsigned int continuity = 0;
+  std::vector<double> origin = {0.5, 0.0, 0.0};
+  std::vector<unsigned int> n_points = {6, 4, 1};
+  std::vector<double> scale = {2.0, 0.6, 1.0};
   // initialize ffd
-  FFD ffd(eqpd.dim, bounds, n_points, continuity);
-
+  ConstrainedFFD ffd(eqpd.dim, origin, n_points, scale);
+  // define free indices to move together
+  // this defines the inner eight nodes to be free only in the x2 direction
+  std::vector<std::vector<unsigned int>> free_inds;
+  std::vector<unsigned int> ind(1, 0);
+  for (unsigned int j = 1; j < n_points[1]-1; ++j) {
+    for (unsigned int i = 1; i < n_points[0]-1; ++i) {
+      ind[0] = (j*n_points[0] + i)*eqpd.dim + 1;
+      free_inds.push_back(ind);
+    }
+  }
+  ffd.reset_indice_mapping(free_inds);
+  ffd.set_FFD_type(FFD::FFDType::BLENDER);
   // pass the ffd and mesh transform information
   eqpd.eqn.ffd_ = &ffd;
   eqpd.mesh_geom.set_ffd(&ffd);
