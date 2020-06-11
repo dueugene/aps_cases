@@ -602,10 +602,14 @@ int main(int argc, char *argv[])
   // dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
   dg_eqp_c.set_write_reduced_mesh(true);
   dg_eqp_c.set_write_reduced_basis(true);
+  dg_eqp_c.set_eqp_unity_weights(false);
   dg_eqp_c.set_output_file_name("naca_laminar");
 
-  // dg_eqp_c.set_high_dim_training(true);
-  // dg_eqp_c.set_adaptive_eqp_training(true);
+  dg_eqp_c.set_high_dim_training(true);
+  dg_eqp_c.set_n_high_dim_parameters(100);
+  dg_eqp_c.set_n_high_dim_add(50);
+  dg_eqp_c.set_write_snapshot(true);
+  dg_eqp_c.set_adaptive_eqp_training(true);
 
   // run the weak greedy algorithm
   eqpd.run_weak_greedy();
