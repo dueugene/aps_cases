@@ -94,8 +94,9 @@ public:
     arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 2.0*M_PI/180.0}};
     arma::Row<double> M_bnd = {{0.2,0.5}};
     arma::Row<double> Re_bnd = {{5e3, 8e3}};
-    arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
-    // arma::Row<double> geom_delta_bnd = {{-0.0, 0.0}};
+    // arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
+    arma::Row<double> geom_delta_bnd_1 = {{-0.025, 0.025}};
+    arma::Row<double> geom_delta_bnd_2 = {{-0.005, 0.005}};
     mu_bnd_.set_size(n_parameters(),2);
     switch (param_mode_) {
     case 0:
@@ -114,16 +115,48 @@ public:
       mu_bnd_.row(2) = Re_bnd;
       break;
     case 4:
-      mu_bnd_.row(0) = alpha_bnd;
-      mu_bnd_.row(1) = M_bnd;
-      // mu_bnd_.row(2) = Re_bnd;
-      for (unsigned int i = 2; i < n_parameters(); ++i) {
-        mu_bnd_.row(i) = geom_delta_bnd;
+      {
+        mu_bnd_.row(0) = alpha_bnd;
+        mu_bnd_.row(1) = M_bnd;
+        // mu_bnd_.row(2) = Re_bnd;
+        // for (unsigned int i = 2; i < n_parameters(); ++i) {
+        //   mu_bnd_.row(i) = geom_delta_bnd;
+        // }
+        const unsigned int nx = 4;
+        const unsigned int ny = 2;
+        unsigned int cnt = 2;
+        for (unsigned int i1 = 0; i1 < ny; ++i1) {
+          for (unsigned int i0 = 0; i0 < nx; ++i0) {
+            if (i0 == 1 || i0 == 2) {
+              mu_bnd_.row(cnt) = geom_delta_bnd_1;
+            } else {
+              mu_bnd_.row(cnt) = geom_delta_bnd_2;
+            }
+            ++cnt;
+          }
+        }
+        Assert(cnt == n_parameters(), "mismatch");
       }
       break;
     case 5:
-      for (unsigned int i = 0; i < n_parameters(); ++i) {
-        mu_bnd_.row(i) = geom_delta_bnd;
+      {
+        // for (unsigned int i = 0; i < n_parameters(); ++i) {
+        //   mu_bnd_.row(i) = geom_delta_bnd;
+        // }
+        const unsigned int nx = 4;
+        const unsigned int ny = 2;
+        unsigned int cnt = 0;
+        for (unsigned int i1 = 0; i1 < ny; ++i1) {
+          for (unsigned int i0 = 0; i0 < nx; ++i0) {
+            if (i0 == 1 || i0 == 2) {
+              mu_bnd_.row(cnt) = geom_delta_bnd_1;
+            } else {
+              mu_bnd_.row(cnt) = geom_delta_bnd_2;
+            }
+            ++cnt;
+          }
+        }
+        Assert(cnt == n_parameters(), "mismatch");
       }
       break;
     default:
@@ -288,7 +321,7 @@ public:
     dg_eqp_c.adapt()->set_adaptation_type(Adaptation<double>::type::anisotropic_h);
     
     // FE tolerance
-    dg_eqp_c.adapt()->set_target_error(2.5e-4);
+    dg_eqp_c.adapt()->set_target_error(1.1e-5);
     dg_eqp_c.adapt()->set_adaptation_target_type(Adaptation<double>::target_type::output);
     dg_eqp_c.adapt()->set_max_iterations(25);
     dg_eqp_c.adapt()->set_refinement_fraction(0.15);
@@ -327,7 +360,8 @@ public:
 
     // set training parameters
     arma::arma_rng::set_seed(0);
-    dg_eqp_c.generate_structured_parameter_set(1,Xi_train);
+    // dg_eqp_c.generate_structured_parameter_set(1,Xi_train);
+    dg_eqp_c.generate_random_parameter_set(150, Xi_train);
     dg_eqp_c.set_training_parameters(Xi_train);
 
     // set test parameters
@@ -570,8 +604,8 @@ int main(int argc, char *argv[])
   dg_eqp_c.set_write_reduced_basis(true);
   dg_eqp_c.set_output_file_name("naca_laminar");
 
-  dg_eqp_c.set_high_dim_training(true);
-  dg_eqp_c.set_adaptive_eqp_training(true);
+  // dg_eqp_c.set_high_dim_training(true);
+  // dg_eqp_c.set_adaptive_eqp_training(true);
 
   // run the weak greedy algorithm
   eqpd.run_weak_greedy();
