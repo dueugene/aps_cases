@@ -290,8 +290,9 @@ public:
     naca_gen.set_n_foil_elements(7); // # elements on foil along flow direction
     naca_gen.set_n_tail_elements(3); // # elements after foil along flow direction
     naca_gen.set_n_radial_elements(5); // # elements in radial direction
-    naca_gen.set_first_element_radial_spacing(0.1/4); 
+    naca_gen.set_first_element_radial_spacing(0.15); 
     naca_gen.set_sqrt_fitting(true); // use sqrt relation for wall-normal spacing
+    naca_gen.set_square_trailing_edge_elements(true);
     naca_gen.generate_mesh(mesh, mesh_geom);
 
 #ifdef WITH_MPI
@@ -328,8 +329,8 @@ public:
     dg_eqp_c.set_initial_polynomial_degree(poly_degree);
 
     // RB-EQP Greedy settings
-    dg_eqp_c.set_n_max_reduced_basis(13);
-    dg_eqp_c.set_weak_greedy_tolerance(1e-3);
+    dg_eqp_c.set_n_max_reduced_basis(25);
+    dg_eqp_c.set_weak_greedy_tolerance(1e-5);
     // dg_eqp_c.set_pod_tolerance(1e-10);
     dg_eqp_c.set_eqp_tolerance(5e-4);
     dg_eqp_c.set_eqp_output_functional_tolerance(1e-5);
@@ -337,7 +338,7 @@ public:
  
     dg_eqp_c.set_greedy_target_type(DGEQPConstructor<double>::GreedyTargetType::output);
     dg_eqp_c.set_eqp_form(EQPForm::elem_stable);
-    dg_eqp_c.set_eqp_norm(EQPNorm::l2);
+    dg_eqp_c.set_eqp_norm(EQPNorm::broken_h1);
     dg_eqp_c.set_include_stab_rb(false);
     dg_eqp_c.set_n_eqp_smoothing_iterations(3);
     dg_eqp_c.set_eqp_verbosity(-1);
@@ -361,7 +362,7 @@ public:
     // set training parameters
     arma::arma_rng::set_seed(0);
     // dg_eqp_c.generate_structured_parameter_set(1,Xi_train);
-    dg_eqp_c.generate_random_parameter_set(150, Xi_train);
+    dg_eqp_c.generate_random_parameter_set(100, Xi_train);
     dg_eqp_c.set_training_parameters(Xi_train);
 
     // set test parameters
@@ -382,11 +383,11 @@ public:
   void set_rb_solver() {
     // set primal RB solver
     ptc_rb.set_linear_solver(&dense_linsolver);
-    ptc_rb.set_max_iter(50);
+    ptc_rb.set_max_iter(150);
     ptc_rb.set_verbosity(-1);
-    ptc_rb.set_abs_tol(1e-10);
-    ptc_rb.set_initial_timestep(1e2);
-    ptc_rb.set_timestep_increase_multiplier(4.0);
+    ptc_rb.set_abs_tol(1e-9);
+    ptc_rb.set_initial_timestep(1e-2);
+    ptc_rb.set_timestep_increase_multiplier(3.0);
     ptc_rb.set_line_search_maximum_physical_change(0.9);
 
     // the below should not be needed for the NACA problem
@@ -417,9 +418,9 @@ public:
 
     ptc.set_verbosity(1);
     ptc.set_linear_solver(&gmres);
-    ptc.set_max_iter(500);
-    ptc.set_initial_timestep(1e-1);
-    ptc.set_timestep_increase_multiplier(4.0);
+    ptc.set_max_iter(150);
+    ptc.set_initial_timestep(1e-2);
+    ptc.set_timestep_increase_multiplier(3.0);
     ptc.set_abs_tol(1e-9);
     ptc.set_line_search_type(PTCSolver<double>::LineSearchType::unsteady);
     ptc.set_line_search_maximum_physical_change(0.2); 
