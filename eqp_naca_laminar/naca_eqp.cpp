@@ -572,7 +572,7 @@ int main(int argc, char *argv[])
   std::vector<std::vector<unsigned int>> free_inds;
   std::vector<unsigned int> ind(1, 0);
   for (unsigned int j = 1; j < n_points[1]-1; ++j) {
-    for (unsigned int i = 1; i < n_points[0]-1; ++i) {
+    for (unsigned int i = 1; i < n_points[0]-3; ++i) {
       ind[0] = (j*n_points[0] + i)*eqpd.dim + 1;
       free_inds.push_back(ind);
     }
