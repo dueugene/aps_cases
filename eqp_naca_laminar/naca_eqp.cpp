@@ -95,8 +95,8 @@ public:
     arma::Row<double> M_bnd = {{0.2,0.5}};
     arma::Row<double> Re_bnd = {{5e3, 8e3}};
     // arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
-    arma::Row<double> geom_delta_bnd_1 = {{-0.025, 0.025}};
-    arma::Row<double> geom_delta_bnd_2 = {{-0.005, 0.005}};
+    arma::Row<double> geom_delta_bnd_1 = {{-0.05, 0.05}};
+    arma::Row<double> geom_delta_bnd_2 = {{-0.01, 0.01}};
     mu_bnd_.set_size(n_parameters(),2);
     switch (param_mode_) {
     case 0:
@@ -122,7 +122,7 @@ public:
         // for (unsigned int i = 2; i < n_parameters(); ++i) {
         //   mu_bnd_.row(i) = geom_delta_bnd;
         // }
-        const unsigned int nx = 4;
+        const unsigned int nx = 2;
         const unsigned int ny = 2;
         unsigned int cnt = 2;
         for (unsigned int i1 = 0; i1 < ny; ++i1) {
@@ -143,7 +143,7 @@ public:
         // for (unsigned int i = 0; i < n_parameters(); ++i) {
         //   mu_bnd_.row(i) = geom_delta_bnd;
         // }
-        const unsigned int nx = 4;
+        const unsigned int nx = 2;
         const unsigned int ny = 2;
         unsigned int cnt = 0;
         for (unsigned int i1 = 0; i1 < ny; ++i1) {
@@ -578,7 +578,7 @@ int main(int argc, char *argv[])
     }
   }
   ffd.reset_indice_mapping(free_inds);
-  ffd.set_FFD_type(FFD::FFDType::BLENDER);
+  // ffd.set_FFD_type(FFD::FFDType::BLENDER);
   // pass the ffd and mesh transform information
   eqpd.eqn.ffd_ = &ffd;
   eqpd.mesh_geom.set_ffd(&ffd);
