@@ -91,7 +91,7 @@ public:
   void init_default_parameter_bound()
   {
     // this section can be modified to change the parameter range
-    arma::Row<double> alpha_bnd = {{0*M_PI/180.0, 2.0*M_PI/180.0}};
+    arma::Row<double> alpha_bnd = {{1.0*M_PI/180.0, 1.0*M_PI/180.0}};
     arma::Row<double> M_bnd = {{0.2,0.5}};
     arma::Row<double> Re_bnd = {{5e3, 8e3}};
     // arma::Row<double> geom_delta_bnd = {{-0.05, 0.05}};
@@ -578,7 +578,7 @@ int main(int argc, char *argv[])
     }
   }
   ffd.reset_indice_mapping(free_inds);
-  // ffd.set_FFD_type(FFD::FFDType::BLENDER);
+  ffd.set_FFD_type(FFD::FFDType::BLENDER);
   // pass the ffd and mesh transform information
   eqpd.eqn.ffd_ = &ffd;
   eqpd.mesh_geom.set_ffd(&ffd);
