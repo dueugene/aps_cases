@@ -122,7 +122,7 @@ public:
         // for (unsigned int i = 2; i < n_parameters(); ++i) {
         //   mu_bnd_.row(i) = geom_delta_bnd;
         // }
-        const unsigned int nx = 2;
+        const unsigned int nx = 4;
         const unsigned int ny = 2;
         unsigned int cnt = 2;
         for (unsigned int i1 = 0; i1 < ny; ++i1) {
@@ -143,7 +143,7 @@ public:
         // for (unsigned int i = 0; i < n_parameters(); ++i) {
         //   mu_bnd_.row(i) = geom_delta_bnd;
         // }
-        const unsigned int nx = 2;
+        const unsigned int nx = 4;
         const unsigned int ny = 2;
         unsigned int cnt = 0;
         for (unsigned int i1 = 0; i1 < ny; ++i1) {
@@ -572,7 +572,7 @@ int main(int argc, char *argv[])
   std::vector<std::vector<unsigned int>> free_inds;
   std::vector<unsigned int> ind(1, 0);
   for (unsigned int j = 1; j < n_points[1]-1; ++j) {
-    for (unsigned int i = 1; i < n_points[0]-3; ++i) {
+    for (unsigned int i = 1; i < n_points[0]-1; ++i) {
       ind[0] = (j*n_points[0] + i)*eqpd.dim + 1;
       free_inds.push_back(ind);
     }
@@ -607,11 +607,12 @@ int main(int argc, char *argv[])
   dg_eqp_c.set_output_file_name("naca_laminar");
 
   dg_eqp_c.set_high_dim_training(true);
-  dg_eqp_c.set_n_high_dim_parameters(100);
-  dg_eqp_c.set_n_high_dim_add(50);
+  dg_eqp_c.set_n_high_dim_parameters(50);
+  dg_eqp_c.set_n_high_dim_add(25);
   dg_eqp_c.set_write_snapshot(true);
   dg_eqp_c.set_adaptive_eqp_training(true);
-
+  dg_eqp_c.set_eqp_enforce_abs(true);
+  
   // run the weak greedy algorithm
   eqpd.run_weak_greedy();
 
